@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --reading-highlight: #fef08a;
+  --reading-word: #f59e0b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --reading-highlight: #4a3d12;
+    --reading-word: #b45309;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.sentence-active {
+  background-color: var(--reading-highlight);
+  border-radius: 0.25rem;
+}
+
+.word-active {
+  background-color: var(--reading-word);
+  color: white;
+  border-radius: 0.2rem;
+}
+
+/* visible focus for keyboard users */
+:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}

@@ -1,0 +1,26 @@
+{
+  "name": "liveread",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.13.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "pnpm --filter @liveread/shared test",
+    "test:integration": "pnpm --filter @liveread/api test:integration",
+    "test:e2e": "pnpm --filter @liveread/web test:e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,yml,yaml,css}\" --ignore-path .gitignore",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json,yml,yaml,css}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}

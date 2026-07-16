@@ -1,0 +1,194 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # CI never uses paid providers — the fake provider validates the core workflow
+  STT_PROVIDER: fake
+  EMAIL_AUTOVERIFY: "true"
+  COOKIE_SECRET: ci-cookie-secret-at-least-32-characters
+  DATABASE_URL: postgresql://liveread:liveread@localhost:5432/liveread
+  REDIS_URL: redis://localhost:6379
+  S3_ENDPOINT: http://localhost:9000
+  S3_ACCESS_KEY: liveread
+  S3_SECRET_KEY: liveread-secret
+  WEB_ORIGINS: http://localhost:3000
+  APP_BASE_URL: http://localhost:3000
+  NEXT_PUBLIC_API_URL: http://localhost:4000
+
+jobs:
+  static:
+    name: Format, lint, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.13.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @liveread/api exec prisma generate
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+  unit:
+    name: Unit + property-based tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.13.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @liveread/shared build
+      # transcript state, normalization, alignment, property-based, evaluation dataset
+      - run: pnpm --filter @liveread/shared test
+      - run: pnpm --filter @liveread/api exec prisma generate
+      - run: pnpm --filter @liveread/api test
+
+  integration:
+    name: Integration tests + migrations from empty DB
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: liveread
+          POSTGRES_PASSWORD: liveread
+          POSTGRES_DB: liveread
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U liveread" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: liveread
+          MINIO_ROOT_PASSWORD: liveread-secret
+        ports: ["9000:9000"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.13.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @liveread/shared build
+      - run: pnpm --filter @liveread/api exec prisma generate
+      # migration test: this database starts empty
+      - run: pnpm --filter @liveread/api exec prisma migrate deploy
+      - run: pnpm --filter @liveread/api test:integration
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.13.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @liveread/api exec prisma generate
+      - run: pnpm build
+
+  e2e:
+    name: E2E (Chromium, Firefox, WebKit)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: liveread
+          POSTGRES_PASSWORD: liveread
+          POSTGRES_DB: liveread
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U liveread" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: liveread
+          MINIO_ROOT_PASSWORD: liveread-secret
+        ports: ["9000:9000"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.13.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @liveread/shared build
+      - run: pnpm --filter @liveread/api exec prisma generate
+      - run: pnpm --filter @liveread/api exec prisma migrate deploy
+      - run: pnpm --filter @liveread/api build
+      - run: pnpm --filter @liveread/web build
+      - run: pnpm --filter @liveread/web exec playwright install --with-deps
+      - name: Start API
+        run: |
+          node apps/api/dist/index.js &
+          npx wait-on http://localhost:4000/healthz -t 60000
+      - name: Start web
+        run: |
+          pnpm --filter @liveread/web start &
+          npx wait-on http://localhost:3000 -t 60000
+      - run: pnpm --filter @liveread/web exec playwright test
+      - run: pnpm --filter @liveread/web exec playwright test e2e/accessibility.spec.ts --project=chromium
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/test-results/
+          retention-days: 7
+
+  docker:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          load: true
+          tags: liveread-api:ci
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          load: true
+          tags: liveread-web:ci
+      - name: Scan images (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: liveread-api:ci
+          format: table
+          exit-code: "0" # report, do not gate, until a triage baseline exists
+          severity: HIGH,CRITICAL

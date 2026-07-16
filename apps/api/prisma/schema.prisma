@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(uuid()) @db.Uuid
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  displayName    String    @map("display_name")
+  locale         String    @default("en")
+  timezone       String    @default("UTC")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  memberships    OrganizationMembership[]
+  sessions       LiveSession[]
+  authSessions   AuthSession[]
+  authTokens     AuthToken[]
+  auditEvents    AuditEvent[]
+  revisions      TranscriptRevision[]
+
+  @@map("users")
+}
+
+model AuthSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  userAgent  String?   @map("user_agent")
+  ipHash     String?   @map("ip_hash")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+/// email verification + password reset tokens
+model AuthToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  purpose   String // email_verify | password_reset
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("auth_tokens")
+}
+
+model Organization {
+  id                   String   @id @default(uuid()) @db.Uuid
+  name                 String
+  slug                 String   @unique
+  defaultRetentionDays Int      @default(90) @map("default_retention_days")
+  publicLinksAllowed   Boolean  @default(true) @map("public_links_allowed")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  memberships OrganizationMembership[]
+  sessions    LiveSession[]
+  auditEvents AuditEvent[]
+
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  organizationId String   @map("organization_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  role           String // owner | administrator | creator | viewer_manager | read_only
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, userId])
+  @@map("organization_memberships")
+}
+
+model LiveSession {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  creatorUserId         String    @map("creator_user_id") @db.Uuid
+  title                 String
+  languageCode          String    @default("en-US") @map("language_code")
+  status                String    @default("preflight") // scheduled|preflight|live|paused|ending|processing|completed|degraded|failed|deleted
+  privacyMode           String    @default("unlisted") @map("privacy_mode") // private|unlisted|passcode|organization|public
+  shareId               String    @unique @map("share_id")
+  shareTokenHash        String    @map("share_token_hash")
+  sharePasscodeHash     String?   @map("share_passcode_hash")
+  shareExpiresAt        DateTime? @map("share_expires_at")
+  shareRevokedAt        DateTime? @map("share_revoked_at")
+  creatorAudioEnabled   Boolean   @default(false) @map("creator_audio_enabled")
+  recordingEnabled      Boolean   @default(true) @map("recording_enabled")
+  interimReadingEnabled Boolean   @default(false) @map("interim_reading_enabled")
+  retentionDays         Int       @default(90) @map("retention_days")
+  /// per-session transcript event sequence allocator
+  lastSequence          Int       @default(-1) @map("last_sequence")
+  startedAt             DateTime? @map("started_at")
+  pausedAt              DateTime? @map("paused_at")
+  endedAt               DateTime? @map("ended_at")
+  region                String    @default("local")
+  transcriptionProvider String    @default("fake") @map("transcription_provider")
+  transcriptionModel    String    @default("fake-1") @map("transcription_model")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  deletedAt             DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  creator      User         @relation(fields: [creatorUserId], references: [id])
+
+  audioStreams     AudioStream[]
+  recordings       Recording[]
+  segments         TranscriptSegment[]
+  events           TranscriptEvent[]
+  vocabulary       VocabularyTerm[]
+  viewerSessions   ViewerSession[]
+  shareAccessEvents ShareAccessEvent[]
+  incidents        IncidentEvent[]
+
+  @@index([creatorUserId])
+  @@index([organizationId])
+  @@map("live_sessions")
+}
+
+model AudioStream {
+  id               String    @id @default(uuid()) @db.Uuid
+  liveSessionId    String    @map("live_session_id") @db.Uuid
+  ownerType        String    @map("owner_type") // creator | viewer
+  ownerId          String    @map("owner_id")
+  streamType       String    @map("stream_type") // canonical_creator | viewer_alignment
+  providerStreamId String?   @map("provider_stream_id")
+  codec            String    @default("pcm_s16le")
+  sampleRate       Int       @default(16000) @map("sample_rate")
+  channelCount     Int       @default(1) @map("channel_count")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  endedAt          DateTime? @map("ended_at")
+  status           String    @default("active") // active | ended | failed
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@index([liveSessionId])
+  @@map("audio_streams")
+}
+
+model Recording {
+  id            String    @id @default(uuid()) @db.Uuid
+  liveSessionId String    @map("live_session_id") @db.Uuid
+  storageKey    String    @map("storage_key")
+  mimeType      String    @default("audio/webm") @map("mime_type")
+  sizeBytes     BigInt    @default(0) @map("size_bytes")
+  durationMs    Int       @default(0) @map("duration_ms")
+  checksum      String?
+  status        String    @default("recording") // recording | uploading | stored | failed | deleted
+  chunkCount    Int       @default(0) @map("chunk_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@index([liveSessionId])
+  @@map("recordings")
+}
+
+model TranscriptSegment {
+  id              String    @id @default(uuid()) @db.Uuid
+  liveSessionId   String    @map("live_session_id") @db.Uuid
+  /// stable presentation order of the segment within the session
+  segmentIndex    Int       @map("segment_index")
+  currentRevision Int       @default(0) @map("current_revision")
+  status          String    @default("provisional") // provisional|stable_interim|final|corrected|superseded
+  text            String    @default("")
+  normalizedText  String    @default("") @map("normalized_text")
+  languageCode    String    @default("en-US") @map("language_code")
+  startMs         Int       @default(0) @map("start_ms")
+  endMs           Int       @default(0) @map("end_ms")
+  confidence      Float?
+  stability       Float?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  finalizedAt     DateTime? @map("finalized_at")
+  correctedAt     DateTime? @map("corrected_at")
+
+  liveSession LiveSession          @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  revisions   TranscriptRevision[]
+
+  @@unique([liveSessionId, segmentIndex])
+  @@index([liveSessionId, status])
+  @@map("transcript_segments")
+}
+
+model TranscriptRevision {
+  id                  String   @id @default(uuid()) @db.Uuid
+  transcriptSegmentId String   @map("transcript_segment_id") @db.Uuid
+  revisionNumber      Int      @map("revision_number")
+  source              String // provider_interim|provider_final|creator_edit|second_pass_correction|system_recovery
+  previousText        String   @map("previous_text")
+  newText             String   @map("new_text")
+  actorUserId         String?  @map("actor_user_id") @db.Uuid
+  reason              String?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  segment TranscriptSegment @relation(fields: [transcriptSegmentId], references: [id], onDelete: Cascade)
+  actor   User?             @relation(fields: [actorUserId], references: [id])
+
+  @@unique([transcriptSegmentId, revisionNumber])
+  @@map("transcript_revisions")
+}
+
+model TranscriptEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  liveSessionId  String   @map("live_session_id") @db.Uuid
+  sequenceNumber Int      @map("sequence_number")
+  segmentId      String   @map("segment_id") @db.Uuid
+  revisionNumber Int      @map("revision_number")
+  eventType      String   @map("event_type")
+  payload        Json
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([liveSessionId, sequenceNumber])
+  @@index([liveSessionId, sequenceNumber])
+  @@map("transcript_events")
+}
+
+model VocabularyTerm {
+  id                String   @id @default(uuid()) @db.Uuid
+  liveSessionId     String   @map("live_session_id") @db.Uuid
+  phrase            String
+  pronunciationHint String?  @map("pronunciation_hint")
+  boost             Float    @default(1.0)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@index([liveSessionId])
+  @@map("vocabulary_terms")
+}
+
+model ViewerSession {
+  id                  String    @id @default(uuid()) @db.Uuid
+  liveSessionId       String    @map("live_session_id") @db.Uuid
+  anonymousId         String    @map("anonymous_id")
+  authenticatedUserId String?   @map("authenticated_user_id") @db.Uuid
+  tokenHash           String    @unique @map("token_hash")
+  readAloudEnabled    Boolean   @default(false) @map("read_aloud_enabled")
+  currentWordIndex    Int       @default(-1) @map("current_word_index")
+  currentSentenceIndex Int      @default(-1) @map("current_sentence_index")
+  alignmentState      String    @default("waiting") @map("alignment_state")
+  alignmentConfidence Float     @default(0) @map("alignment_confidence")
+  startedAt           DateTime  @default(now()) @map("started_at")
+  lastSeenAt          DateTime  @default(now()) @map("last_seen_at")
+  endedAt             DateTime? @map("ended_at")
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@index([liveSessionId])
+  @@map("viewer_sessions")
+}
+
+model ShareAccessEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  liveSessionId   String   @map("live_session_id") @db.Uuid
+  viewerSessionId String?  @map("viewer_session_id") @db.Uuid
+  action          String // granted | denied_token | denied_passcode | denied_revoked | denied_expired | revoked
+  ipHash          String?  @map("ip_hash")
+  userAgentFamily String?  @map("user_agent_family")
+  countryCode     String?  @map("country_code")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@index([liveSessionId])
+  @@map("share_access_events")
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String?  @map("organization_id") @db.Uuid
+  actorUserId    String?  @map("actor_user_id") @db.Uuid
+  action         String
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id")
+  requestId      String?  @map("request_id")
+  beforeState    Json?    @map("before_state")
+  afterState     Json?    @map("after_state")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  actor        User?         @relation(fields: [actorUserId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("audit_events")
+}
+
+model IncidentEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  liveSessionId  String?   @map("live_session_id") @db.Uuid
+  component      String
+  severity       String // info | warning | critical
+  errorCode      String    @map("error_code")
+  message        String
+  recoverable    Boolean   @default(true)
+  recoveryAction String?   @map("recovery_action")
+  startedAt      DateTime  @default(now()) @map("started_at")
+  resolvedAt     DateTime? @map("resolved_at")
+
+  liveSession LiveSession? @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@index([liveSessionId])
+  @@map("incident_events")
+}

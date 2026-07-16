@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "liveread-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@liveread/web", "dev"],
+      "cwd": "/Users/koutilyayenumula/supply_chain_project/liveread",
+      "port": 3000
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+allowBuilds:
+  esbuild: true
+  argon2: true
+  prisma: true
+  "@prisma/client": true
+  "@prisma/engines": true
+  "@tailwindcss/oxide": true
+  sharp: true
+  unrs-resolver: true
+  msgpackr-extract: true
+  bufferutil: true
+  utf-8-validate: true

@@ -1,0 +1,49 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, so new advisories surface without a push
+
+jobs:
+  dependencies:
+    name: Dependency + license scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.13.0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Audit dependencies
+        run: pnpm audit --audit-level high
+        continue-on-error: true # report; gate once a triage baseline exists
+      - name: License check
+        run: npx license-checker-rseidelsohn --production --summary
+        continue-on-error: true
+
+  secrets:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  filesystem:
+    name: Filesystem vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "0"
+          severity: HIGH,CRITICAL

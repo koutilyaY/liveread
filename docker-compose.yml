@@ -1,0 +1,171 @@
+name: liveread
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: liveread
+      POSTGRES_PASSWORD: liveread
+      POSTGRES_DB: liveread
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liveread"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: liveread
+      MINIO_ROOT_PASSWORD: liveread-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50060:50000-50060/udp"
+    volumes:
+      - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
+    profiles: ["media"]
+
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host
+    command: -n --log-file=stdout --lt-cred-mech --realm=liveread.local --user=liveread:liveread-turn
+    profiles: ["media"]
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      # production by default: strict rate limits, Secure cookies, HSTS.
+      # `make test-e2e` overrides to `test`, because the E2E suite creates a
+      # fresh creator per test and would otherwise exhaust the production
+      # signup limit (10/15min) — which is the limit working, not a bug.
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: "4000"
+      DATABASE_URL: postgresql://liveread:liveread@postgres:5432/liveread
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: liveread
+      S3_SECRET_KEY: liveread-secret
+      SMTP_URL: smtp://mailpit:1025
+      WEB_ORIGINS: http://localhost:3000
+      APP_BASE_URL: http://localhost:3000
+      COOKIE_SECRET: local-dev-cookie-secret-change-in-production
+      STT_PROVIDER: fake
+      EMAIL_AUTOVERIFY: "true"
+      # false by default: a forged X-Forwarded-For must not mint a fresh
+      # rate-limit bucket. Set to your LB addresses in a real deployment.
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      # test-only failure injection for the fake provider; never set in production
+      FAKE_STT_FAIL_MODE: ${FAKE_STT_FAIL_MODE:-none}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://localhost:4000/healthz'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["node", "dist/worker.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://liveread:liveread@postgres:5432/liveread
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: liveread
+      S3_SECRET_KEY: liveread-secret
+      SMTP_URL: smtp://mailpit:1025
+      COOKIE_SECRET: local-dev-cookie-secret-change-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      API_INTERNAL_URL: http://api:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    profiles: ["observability"]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: liveread
+    profiles: ["observability"]
+
+volumes:
+  pgdata:
+  miniodata:
