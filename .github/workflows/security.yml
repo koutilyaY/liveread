@@ -8,6 +8,18 @@ on:
     - cron: "0 6 * * 1" # weekly, so new advisories surface without a push
 
 jobs:
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # catches what a plain YAML parse cannot: duplicate keys, unknown fields,
+      # and unresolvable action refs. Both have broken this repo's CI before.
+      - name: actionlint
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
   dependencies:
     name: Dependency + license scanning
     runs-on: ubuntu-latest
