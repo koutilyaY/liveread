@@ -1,0 +1,39 @@
+# gitleaks configuration
+#
+# Extends the default ruleset — we only ADD narrow allowlists, never disable
+# rules. A real credential committed anywhere outside these paths must still
+# fail the build.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key"
+regex = '''(?i)(?:key|api|token|secret|password|passwd|pwd)(?:.{0,20})?['"][0-9a-zA-Z\-_=]{8,}['"]'''
+keywords = ["key", "api", "token", "secret", "password", "passwd", "pwd"]
+
+  [rules.allowlist]
+  # Integration tests create real accounts against a throwaway local database
+  # and must pass a password to do so. These are literals in test source, not
+  # credentials for any deployed system.
+  paths = [
+    '''.*\.test\.ts$''',
+    '''.*\.spec\.ts$''',
+    '''apps/web/e2e/.*''',
+    '''apps/api/prisma/seed\.ts$''',
+  ]
+
+[allowlist]
+description = "Local development placeholders"
+paths = [
+  # Documented dev-only values for the local Docker stack. The API refuses to
+  # boot in production with a COOKIE_SECRET under 32 chars, so these cannot be
+  # used accidentally in a real deployment.
+  '''\.env\.example$''',
+  '''docker-compose\.yml$''',
+  '''infra/livekit/livekit\.yaml$''',
+  # Documentation deliberately shows example configuration and demo logins.
+  '''docs/.*\.md$''',
+  '''README\.md$''',
+]
