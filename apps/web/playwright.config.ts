@@ -42,7 +42,13 @@ export default defineConfig({
         launchOptions: {
           firefoxUserPrefs: {
             "permissions.default.microphone": 1,
+            // Firefox's own fake capture device — the fixture falls back to
+            // this on hosts with no audio backend (headless Linux CI).
             "media.navigator.streams.fake": true,
+            "media.navigator.permission.disabled": true,
+            // allow AudioContext to start without a user gesture
+            "media.autoplay.default": 0,
+            "media.autoplay.blocking_policy": 0,
           },
         },
       },

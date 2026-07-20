@@ -4,9 +4,11 @@ import { expect } from "@playwright/test";
 /**
  * Deterministic media fixture: replaces getUserMedia with a real MediaStream
  * backed by an oscillator. Chromium's --use-fake-device-for-media-capture
- * hangs on macOS hosts, and this fixture also works identically in Firefox
- * and WebKit. Everything downstream (AudioWorklet capture, MediaRecorder,
- * permission UX) runs the real production code path.
+ * hangs on macOS hosts, and this fixture works identically in Firefox and
+ * WebKit. Where no audio backend exists (headless Linux CI), it falls back to
+ * the browser's own fake capture device. Either way the stream is real, so
+ * everything downstream — AudioWorklet capture, MediaRecorder, permission UX
+ * — runs the production code path.
  */
 export async function installSyntheticMicrophone(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -17,17 +19,35 @@ export async function installSyntheticMicrophone(page: Page): Promise<void> {
       if (!constraints || !constraints.audio) {
         return original.call(this, constraints);
       }
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      gain.gain.value = 0.3;
-      const dest = ctx.createMediaStreamDestination();
-      osc.connect(gain);
-      gain.connect(dest);
-      osc.frequency.value = 440;
-      osc.start();
-      if (ctx.state === "suspended") void ctx.resume();
-      return dest.stream;
+      try {
+        const ctx = new AudioContext();
+        if (ctx.state === "suspended") await ctx.resume();
+        // A suspended/failed context emits silence forever: the AudioWorklet
+        // would never fire, no frames would reach the server, and the fake
+        // provider (which only speaks while frames arrive) would stay silent
+        // — surfacing as "transcript never appeared" rather than as an audio
+        // error. Headless Linux CI has no audio backend, so check explicitly.
+        if (ctx.state !== "running")
+          throw new Error("audio_context_not_running");
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.value = 0.3;
+        const dest = ctx.createMediaStreamDestination();
+        osc.connect(gain);
+        gain.connect(dest);
+        osc.frequency.value = 440;
+        osc.start();
+        if (dest.stream.getAudioTracks().length === 0) {
+          throw new Error("no_audio_track");
+        }
+        return dest.stream;
+      } catch {
+        // Fall back to the browser's own fake capture device (Firefox:
+        // media.navigator.streams.fake, Chromium:
+        // --use-fake-device-for-media-capture). Still a real MediaStream, so
+        // the production capture path is exercised either way.
+        return original.call(this, constraints);
+      }
     };
   });
 }
