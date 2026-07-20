@@ -99,19 +99,35 @@ restart or skip is not drowned out by stale context.
 
 ## Result
 
-```jsonc
-{
-  "matched_word_index": 348, // index into the DISPLAY token list
-  "matched_sentence_index": 29,
-  "matched_segment_id": "uuid",
-  "confidence": 0.91,
-  "state": "tracking", // waiting | tracking | uncertain | lost | caught_up
-  "reason_codes": ["high_ngram_overlap", "continuous_forward_progress"],
-  "candidate_count": 2,
+`AlignmentResult` as actually returned by `engine.update()` and
+`engine.getResult()` (`packages/shared/src/alignment/engine.ts`):
+
+```ts
+interface AlignmentResult {
+  matchedTokenIndex: number; // index into the MATCHABLE token list
+  matchedWordIndex: number; // index into the DISPLAY token list, -1 = none
+  matchedSentenceIndex: number;
+  matchedSegmentId: string | null;
+  confidence: number; // 0..1
+  state: AlignmentState; // waiting | tracking | uncertain | lost | caught_up
+  reasonCodes: string[];
+  candidateCount: number;
 }
 ```
 
-Reason codes are emitted for explainability: `high_ngram_overlap`,
+Two display-vs-matching indices exist because normalization drops filler and
+punctuation-only tokens: `matchedTokenIndex` addresses the normalized list the
+scorer works on, while `matchedWordIndex` addresses what the reader actually
+sees. The UI only ever uses the latter.
+
+The specification sketches this payload in snake_case with a
+`viewer_session_id`. The engine is a pure in-browser module with no notion of
+a viewer session, so it returns camelCase fields and no session id; the server
+attaches `viewerSessionId` when a position is reported to
+`PATCH /v1/viewer-sessions/:id`. This deviation is deliberate and is recorded
+rather than silently ignored.
+
+Reason codes (`reasonCodes`) are emitted for explainability: `high_ngram_overlap`,
 `high_edit_similarity`, `phonetic_support`, `position_continuity`,
 `continuous_forward_progress`, `large_jump_confirmed`,
 `backward_jump_confirmed`, `jump_pending_confirmation`, `jump_below_threshold`,
