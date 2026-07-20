@@ -76,11 +76,22 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 5s --health-retries 10
       minio:
-        image: bitnami/minio:latest
+        # bitnami/minio was withdrawn from Docker Hub, which failed
+        # `Initialize containers` before any test ran. The plain minio/minio
+        # image needs a `server /data` argument and GitHub service containers
+        # cannot pass one — it exits immediately. edge-cicd is MinIO's
+        # purpose-built CI image that starts the server with no arguments.
+        image: minio/minio:edge-cicd
         env:
           MINIO_ROOT_USER: liveread
           MINIO_ROOT_PASSWORD: liveread-secret
         ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+        options: >-
+          --health-cmd "mc ready local" --health-interval 5s
+          --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -128,11 +139,22 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 5s
           --health-timeout 5s --health-retries 10
       minio:
-        image: bitnami/minio:latest
+        # bitnami/minio was withdrawn from Docker Hub, which failed
+        # `Initialize containers` before any test ran. The plain minio/minio
+        # image needs a `server /data` argument and GitHub service containers
+        # cannot pass one — it exits immediately. edge-cicd is MinIO's
+        # purpose-built CI image that starts the server with no arguments.
+        image: minio/minio:edge-cicd
         env:
           MINIO_ROOT_USER: liveread
           MINIO_ROOT_PASSWORD: liveread-secret
         ports: ["9000:9000"]
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+        options: >-
+          --health-cmd "mc ready local" --health-interval 5s
+          --health-timeout 5s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
