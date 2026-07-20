@@ -21,12 +21,20 @@ export async function installSyntheticMicrophone(page: Page): Promise<void> {
       }
       try {
         const ctx = new AudioContext();
-        if (ctx.state === "suspended") await ctx.resume();
-        // A suspended/failed context emits silence forever: the AudioWorklet
-        // would never fire, no frames would reach the server, and the fake
-        // provider (which only speaks while frames arrive) would stay silent
-        // — surfacing as "transcript never appeared" rather than as an audio
-        // error. Headless Linux CI has no audio backend, so check explicitly.
+        if (ctx.state === "suspended") {
+          // NEVER await resume() unconditionally: on a host with no audio
+          // backend it never settles, which hangs getUserMedia and leaves
+          // preflight stuck forever. CI installs a PulseAudio null sink so
+          // this resolves; the race is a belt-and-braces guard.
+          await Promise.race([
+            ctx.resume(),
+            new Promise((r) => setTimeout(r, 2000)),
+          ]);
+        }
+        // A suspended context emits silence forever: the AudioWorklet never
+        // fires, no frames reach the server, and the fake provider (which
+        // only speaks while frames arrive) stays silent — surfacing as
+        // "transcript never appeared" rather than as an audio error.
         if (ctx.state !== "running")
           throw new Error("audio_context_not_running");
         const osc = ctx.createOscillator();

@@ -162,6 +162,19 @@ jobs:
       - run: pnpm --filter @liveread/api build
       - run: pnpm --filter @liveread/web build
       - run: pnpm --filter @liveread/web exec playwright install --with-deps
+      # Firefox needs a real audio backend or AudioContext stays suspended
+      # forever: the AudioWorklet never fires, no frames reach the server, and
+      # the fake provider (which only speaks while frames arrive) stays silent.
+      # Chromium and WebKit tolerate a deviceless host; Firefox does not.
+      # Reproduced in mcr.microsoft.com/playwright:v1.61.1-noble — a null sink
+      # takes AudioContext from suspended to running and Firefox goes 0/5 → 5/5.
+      - name: Start a virtual audio device (required by Firefox)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pulseaudio
+          pulseaudio -D --exit-idle-time=-1
+          sleep 2
+          pactl load-module module-null-sink sink_name=vspeaker
       - name: Start API
         run: |
           node apps/api/dist/index.js &
