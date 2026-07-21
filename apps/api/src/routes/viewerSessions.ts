@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { sha256 } from "../lib/crypto.js";
 import { Errors } from "../lib/errors.js";
+import { routeLimit } from "../lib/rateLimits.js";
 
 /**
  * Viewer session state reporting. Only aggregate alignment POSITION is
@@ -12,7 +13,7 @@ import { Errors } from "../lib/errors.js";
 export function registerViewerSessionRoutes(app: FastifyInstance): void {
   app.patch<{ Params: { viewerSessionId: string } }>(
     "/v1/viewer-sessions/:viewerSessionId",
-    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    { config: { rateLimit: { max: routeLimit(120), timeWindow: "1 minute" } } },
     async (req) => {
       const body = z
         .object({

@@ -10,6 +10,7 @@ import {
 } from "../lib/crypto.js";
 import { Errors } from "../lib/errors.js";
 import { env } from "../env.js";
+import { routeLimit } from "../lib/rateLimits.js";
 
 /**
  * Anonymous viewer access via share links.
@@ -57,7 +58,7 @@ async function resolveShareForRead(shareId: string, viewerToken?: string) {
 export function registerShareRoutes(app: FastifyInstance): void {
   app.post<{ Params: { shareId: string } }>(
     "/v1/share/:shareId/access",
-    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    { config: { rateLimit: { max: routeLimit(30), timeWindow: "1 minute" } } },
     async (req, reply) => {
       const db = prisma();
       const body = z
@@ -166,7 +167,7 @@ export function registerShareRoutes(app: FastifyInstance): void {
     Querystring: { token?: string; after?: string };
   }>(
     "/v1/share/:shareId/transcript",
-    { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+    { config: { rateLimit: { max: routeLimit(60), timeWindow: "1 minute" } } },
     async (req, reply) => {
       const { db, session } = await resolveShareForRead(
         req.params.shareId,
@@ -216,7 +217,7 @@ export function registerShareRoutes(app: FastifyInstance): void {
   /** Abuse reporting for viewers. */
   app.post<{ Params: { shareId: string } }>(
     "/v1/share/:shareId/report",
-    { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } },
+    { config: { rateLimit: { max: routeLimit(5), timeWindow: "10 minutes" } } },
     async (req) => {
       const db = prisma();
       const body = z

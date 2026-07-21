@@ -101,6 +101,8 @@ jobs:
       # migration test: this database starts empty
       - run: pnpm --filter @liveread/api exec prisma migrate deploy
       - run: pnpm --filter @liveread/api test:integration
+      # the README's test table is generated; fail if it drifts from reality
+      - run: node scripts/readme-stats.mjs --check
 
   build:
     name: Production build

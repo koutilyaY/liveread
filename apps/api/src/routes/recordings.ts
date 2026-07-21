@@ -7,6 +7,7 @@ import { requireUser } from "../plugins/auth.js";
 import { deleteObject, listKeys, presignGet, putObject } from "../lib/s3.js";
 import { recordingChunksStored } from "../lib/metrics.js";
 import { enqueueFinalizeRecording } from "../jobs/queue.js";
+import { routeLimit } from "../lib/rateLimits.js";
 
 /**
  * Recording pipeline: the browser MediaRecorder uploads sequential webm
@@ -61,7 +62,7 @@ export function registerRecordingRoutes(app: FastifyInstance): void {
   }>(
     "/v1/sessions/:id/recording/:recordingId/chunk",
     {
-      config: { rateLimit: { max: 600, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: routeLimit(600), timeWindow: "1 minute" } },
       bodyLimit: MAX_CHUNK_BYTES,
     },
     async (req) => {

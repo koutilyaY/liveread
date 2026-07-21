@@ -5,7 +5,7 @@ INFRA_SERVICES := postgres redis minio mailpit
 
 .PHONY: setup dev up down logs migrate seed test test-unit test-integration wait-api \
         test-e2e test-load test-network test-accessibility test-provider-failure \
-        verify-real-stt \
+        verify-real-stt readme-stats readme-assets \
         lint typecheck \
         format verify backup restore clean
 
@@ -67,6 +67,14 @@ test-load: ## k6 via docker; TRUST_PROXY lets k6 simulate distinct viewer IPs
 
 test-network: ## chaos: restart redis mid-session and verify recovery
 	bash infra/chaos/redis-restart-test.sh
+
+readme-stats: ## regenerate the README test table from real runner output
+	node scripts/readme-stats.mjs
+
+readme-assets: ## re-capture README screenshots + GIF from the running app
+	node apps/web/scripts/capture-readme-assets.mjs
+	docker run --rm -v "$$(pwd)/docs/assets:/a" liveread-api:latest sh -c \
+	  'ffmpeg -y -i /a/read-aloud.webm -vf "crop=1280:430:0:0,fps=10,scale=880:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" -loop 0 /a/read-aloud.gif'
 
 verify-real-stt: ## live check of the REAL speech provider (needs your own DEEPGRAM_API_KEY)
 	@test -n "$$DEEPGRAM_API_KEY" || { echo "Set DEEPGRAM_API_KEY first — this deliberately does not fall back to the fake provider."; exit 1; }
