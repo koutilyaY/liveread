@@ -38,6 +38,9 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      # README's test table is generated from the test files; fail on drift.
+      # Hermetic — counts `it(...)` declarations, runs no suite, needs no DB.
+      - run: node scripts/readme-stats.mjs --check
 
   unit:
     name: Unit + property-based tests
@@ -101,8 +104,6 @@ jobs:
       # migration test: this database starts empty
       - run: pnpm --filter @liveread/api exec prisma migrate deploy
       - run: pnpm --filter @liveread/api test:integration
-      # the README's test table is generated; fail if it drifts from reality
-      - run: node scripts/readme-stats.mjs --check
 
   build:
     name: Production build

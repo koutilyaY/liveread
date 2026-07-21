@@ -1,18 +1,26 @@
 #!/usr/bin/env node
 /**
- * Regenerates the README's test-results table from ACTUAL runner output.
+ * Keeps the README's test table honest.
  *
- * Hand-typed counts rot: the README claimed 65 shared / 15 integration tests
- * when reality was 64 / 36. In a repo whose pitch is "every number was
+ * Hand-typed counts rot: the README once claimed 65 shared / 15 integration
+ * tests when reality was 64 / 36. In a repo whose pitch is "every number was
  * produced by a command", a wrong number is worse than no number.
  *
- *   node scripts/readme-stats.mjs          # rewrite the block in README.md
- *   node scripts/readme-stats.mjs --check  # exit 1 if stale (used by CI)
+ *   node scripts/readme-stats.mjs          # rewrite the block (needs `make up`)
+ *   node scripts/readme-stats.mjs --check  # verify only — hermetic, used by CI
  *
- * Requires the local stack for the integration suite: `make up`.
+ * Two modes on purpose:
+ *
+ *  - WRITE runs the real suites and cross-checks them against a static count of
+ *    `it(...)` declarations. If those ever disagree, it refuses to write rather
+ *    than publish a number it cannot justify.
+ *  - CHECK counts statically only. It runs no subprocess and needs no database,
+ *    so it can live in any CI job without re-running suites that already ran
+ *    there — an earlier version did re-run them and failed on infrastructure,
+ *    not on drift, which is the fastest way to teach everyone to ignore a check.
  */
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,107 +28,119 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const README = join(root, "README.md");
 const START = "<!-- BEGIN:test-results -->";
 const END = "<!-- END:test-results -->";
-
 const check = process.argv.includes("--check");
 
-/** Run a vitest suite and return its passing test count. */
-function vitestCount(filter, args = "") {
-  try {
-    const out = execSync(`pnpm --filter ${filter} ${args} 2>&1`, {
-      cwd: root,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 600_000,
-    });
-    const m = out.match(/Tests\s+(\d+)\s+passed/);
-    if (!m) throw new Error(`no test summary in output of: ${filter} ${args}`);
-    return Number(m[1]);
-  } catch (err) {
-    const out = String(err.stdout ?? err.message ?? "");
-    const m = out.match(/Tests\s+(\d+)\s+passed/);
-    if (m) return Number(m[1]);
-    throw new Error(`suite failed: ${filter} ${args}\n${out.slice(-600)}`);
-  }
+/** Recursively collect *.test.ts under a directory. */
+function testFiles(relDir, filter = () => true) {
+  const out = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      if (entry === "node_modules" || entry === "dist") continue;
+      const abs = join(dir, entry);
+      if (statSync(abs).isDirectory()) walk(abs);
+      else if (entry.endsWith(".test.ts") && filter(abs)) out.push(abs);
+    }
+  };
+  walk(join(root, relDir));
+  return out;
 }
 
 /**
- * Count `it(...)` declarations in the given files. Done in Node rather than
- * shelling out to grep: a grep that silently returns nothing would quietly
- * publish "0 tests", which is exactly the kind of wrong number this script
- * exists to prevent.
+ * Count `it(...)` declarations. Done in Node rather than by shelling out to
+ * grep: a grep that silently returns nothing would publish "0 tests", which is
+ * precisely the failure this script exists to prevent (it happened once).
  */
 function countIts(files) {
   let total = 0;
-  for (const rel of files) {
-    const abs = join(root, rel);
-    if (!existsSync(abs)) throw new Error(`countIts: missing file ${rel}`);
-    const matches = readFileSync(abs, "utf-8").match(/^\s*it\(/gm);
-    total += matches ? matches.length : 0;
+  for (const abs of files) {
+    const m = readFileSync(abs, "utf-8").match(/^\s*it\(/gm);
+    total += m ? m.length : 0;
   }
-  if (total === 0) throw new Error(`countIts: 0 tests found in ${files.join(", ")}`);
+  if (total === 0) throw new Error(`countIts: found 0 tests in ${files.length} file(s)`);
   return total;
 }
 
-/** Expand a directory into its *.test.ts files. */
-function testFilesIn(dir) {
-  return readdirSync(join(root, dir))
-    .filter((f) => f.endsWith(".test.ts"))
-    .map((f) => `${dir}/${f}`);
+const isIntegration = (p) => p.includes(`${join("test", "integration")}`);
+
+const stats = {
+  shared: countIts(testFiles("packages/shared/src")),
+  apiUnit: countIts(testFiles("apps/api/src", (p) => !isIntegration(p))),
+  integration: countIts(testFiles("apps/api/src/test/integration")),
+  alignment: countIts(testFiles("packages/shared/src/alignment")),
+  contract: countIts(testFiles("apps/api/src/stt")),
+};
+stats.total = stats.shared + stats.apiUnit + stats.integration;
+
+/** Run a suite and return its reported passing count (write mode only). */
+function runnerCount(filter, script) {
+  const out = execSync(`pnpm --filter ${filter} ${script} 2>&1`, {
+    cwd: root,
+    encoding: "utf-8",
+    timeout: 900_000,
+  });
+  const m = out.match(/Tests\s+(\d+)\s+passed/);
+  if (!m) throw new Error(`no vitest summary from ${filter} ${script}`);
+  return Number(m[1]);
 }
 
-const shared = vitestCount("@liveread/shared", "test");
-const apiUnit = vitestCount("@liveread/api", "test");
-const integration = vitestCount("@liveread/api", "test:integration");
-const alignment = countIts(testFilesIn("packages/shared/src/alignment"));
-const contract = countIts(["apps/api/src/stt/deepgram.contract.test.ts"]);
-const total = shared + apiUnit + integration;
-
-const stamp = new Date().toISOString().slice(0, 10);
-
-const block = `${START}
+const block = () => `${START}
 | Suite | Count | What it covers |
 |---|---:|---|
-| Unit, property-based & evaluation | **${shared}** | transcript state machine, tokenization in 6 languages, and the alignment engine — including \`fast-check\` property tests and a ${alignment}-test alignment suite with a 20-scenario evaluation dataset |
-| API unit | **${apiUnit}** | env/config validation, and ${contract} Deepgram **contract tests** against a local server speaking its documented wire protocol |
-| Integration | **${integration}** | real Postgres/Redis/MinIO: auth, CSRF, cross-tenant isolation, share revocation & expiry, optimistic-concurrency races, recording finalize, retention deletion |
+| Unit, property-based & evaluation | **${stats.shared}** | transcript state machine, tokenization in 6 languages, and the alignment engine — including \`fast-check\` property tests and a ${stats.alignment}-test alignment suite with a 20-scenario evaluation dataset |
+| API unit | **${stats.apiUnit}** | env/config validation, rate-limit ceilings, and ${stats.contract} Deepgram **contract tests** against a local server speaking its documented wire protocol |
+| Integration | **${stats.integration}** | real Postgres/Redis/MinIO: auth, CSRF, cross-tenant isolation, share revocation & expiry, optimistic-concurrency races, recording finalize, retention deletion |
 | End-to-end | **15** | Chromium · Firefox · WebKit — full creator→viewer live flow, reconnect replay, denied-microphone fallback |
 | Accessibility | **2** | axe-core, zero serious/critical violations |
 
-**${total}** unit + integration tests, plus 15 E2E across three browser engines.
+**${stats.total}** unit + integration tests, plus 15 E2E across three browser engines.
 Load: k6 at 50 VUs, p95 **6.0 ms**, 0 share tokens guessed. Chaos: Redis
-restart, recovered in **1 s**. <sub>Regenerated by \`make readme-stats\` — last run ${stamp}.</sub>
+restart, recovered in **1 s**. <sub>Generated by \`make readme-stats\`; \`--check\` fails CI on drift.</sub>
 ${END}`;
 
 const readme = readFileSync(README, "utf-8");
 const s = readme.indexOf(START);
 const e = readme.indexOf(END);
 if (s === -1 || e === -1) {
-  console.error(`✗ markers ${START} / ${END} not found in README.md`);
+  console.error(`✗ markers not found in README.md`);
   process.exit(1);
 }
 
-const current = readme.slice(s, e + END.length);
-
 if (check) {
   /**
-   * Compare the NUMBERS, not the exact text. Prettier reformats markdown
-   * tables after this script writes them, so byte equality would report drift
-   * on every run and train everyone to ignore the check.
+   * Compare NUMBERS, not exact text: prettier reformats the table after this
+   * script writes it, so byte equality would report drift on every run.
    */
-  const bolded = [...current.matchAll(/\*\*(\d+)\*\*/g)].map((m) => Number(m[1]));
-  const expected = [shared, apiUnit, integration, 15, 2, total];
-  const missing = expected.filter((n) => !bolded.includes(n));
-  if (missing.length > 0) {
-    console.error("✗ README test table is STALE. Run: make readme-stats");
-    console.error(`  README shows: ${bolded.join(", ")}`);
-    console.error(`  reality:      shared ${shared}, api ${apiUnit}, integration ${integration}, total ${total}`);
+  const shown = [...readme.slice(s, e).matchAll(/\*\*(\d+)\*\*/g)].map((m) => Number(m[1]));
+  const required = [stats.shared, stats.apiUnit, stats.integration, stats.total];
+  const missing = required.filter((n) => !shown.includes(n));
+  if (missing.length) {
+    console.error("✗ README test table is STALE — run: make readme-stats");
+    console.error(`  README shows : ${shown.join(", ")}`);
+    console.error(`  actual       : shared ${stats.shared}, api ${stats.apiUnit}, integration ${stats.integration}, total ${stats.total}`);
     process.exit(1);
   }
-  console.log(`✓ README test table matches reality (${total} unit+integration)`);
+  console.log(`✓ README matches the test files (${stats.total} unit + integration)`);
   process.exit(0);
 }
 
-writeFileSync(README, readme.slice(0, s) + block + readme.slice(e + END.length));
+// WRITE: prove the static counts equal what the runners actually report.
+const actual = {
+  shared: runnerCount("@liveread/shared", "test"),
+  apiUnit: runnerCount("@liveread/api", "test"),
+  integration: runnerCount("@liveread/api", "test:integration"),
+};
+for (const key of Object.keys(actual)) {
+  if (actual[key] !== stats[key]) {
+    console.error(
+      `✗ ${key}: runner reports ${actual[key]} but ${stats[key]} it(...) declarations were counted.\n` +
+        `  Refusing to write a number that cannot be justified — likely a dynamic/skipped test.`,
+    );
+    process.exit(1);
+  }
+}
+
+writeFileSync(README, readme.slice(0, s) + block() + readme.slice(e + END.length));
 console.log(
-  `✓ README updated: shared ${shared}, api ${apiUnit}, integration ${integration} (total ${total}); alignment ${alignment}, contract ${contract}`,
+  `✓ README updated — shared ${stats.shared}, api ${stats.apiUnit}, integration ${stats.integration} ` +
+    `(total ${stats.total}); alignment ${stats.alignment}, contract ${stats.contract}. Static counts verified against live runners.`,
 );
