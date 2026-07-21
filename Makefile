@@ -5,6 +5,7 @@ INFRA_SERVICES := postgres redis minio mailpit
 
 .PHONY: setup dev up down logs migrate seed test test-unit test-integration wait-api \
         test-e2e test-load test-network test-accessibility test-provider-failure \
+        verify-real-stt \
         lint typecheck \
         format verify backup restore clean
 
@@ -66,6 +67,10 @@ test-load: ## k6 via docker; TRUST_PROXY lets k6 simulate distinct viewer IPs
 
 test-network: ## chaos: restart redis mid-session and verify recovery
 	bash infra/chaos/redis-restart-test.sh
+
+verify-real-stt: ## live check of the REAL speech provider (needs your own DEEPGRAM_API_KEY)
+	@test -n "$$DEEPGRAM_API_KEY" || { echo "Set DEEPGRAM_API_KEY first — this deliberately does not fall back to the fake provider."; exit 1; }
+	pnpm --filter @liveread/api verify:real-stt
 
 test-provider-failure: ## acceptance 27/28 through the UI: force an STT outage
 	NODE_ENV=test FAKE_STT_FAIL_MODE=start $(COMPOSE) up -d api

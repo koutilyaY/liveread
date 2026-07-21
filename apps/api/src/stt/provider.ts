@@ -45,6 +45,12 @@ export interface SttStream {
   finishStream(): Promise<void>;
   /** Abort without flushing. */
   cancelStream(): void;
+  /**
+   * Optional transport counters. `droppedFrames` is audio the provider could
+   * not accept (socket down past the bounded buffer) — a real transcript gap,
+   * which must be observable rather than silently swallowed.
+   */
+  stats?(): { droppedFrames: number; pendingFrames: number };
 }
 
 export interface SttUsage {

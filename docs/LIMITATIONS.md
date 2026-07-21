@@ -21,12 +21,12 @@ Written to be believed. Everything here is a real gap, not a hedge.
 
 ## Implemented but unverified
 
-| #   | Item                                   | Status                                                                                                                                                               |
-| --- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 13  | **Deepgram adapter**                   | written to the documented protocol; **never executed against the live service** — no credentials in this environment. Blocker: missing credentials.                  |
-| 14  | **Regional/multi-region deployment**   | designed (ADR-0011); never applied to a real cloud. Blocker: infrastructure.                                                                                         |
-| 15  | **Thousands of viewers per session**   | load-tested at **50 concurrent VUs on one laptop**, not thousands across regions. The Redis fan-out + DB replay design supports it; that claim is unproven at scale. |
-| 16  | **50,000-word auto-scroll smoothness** | alignment is verified fast on a 5,000+ word transcript (<100 ms/update). Browser scroll smoothness at 50k words is **not** measured.                                 |
+| #   | Item                                   | Status                                                                                                                                                                                                                                                                                                                                         |
+| --- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 13  | **Deepgram adapter**                   | protocol-verified by 13 contract tests against a local server speaking Deepgram's documented wire format; **never executed against the live service** — no credentials in this environment. Recognition quality is therefore entirely unmeasured. Run `DEEPGRAM_API_KEY=... make verify-real-stt` to close this. Blocker: missing credentials. |
+| 14  | **Regional/multi-region deployment**   | designed (ADR-0011); never applied to a real cloud. Blocker: infrastructure.                                                                                                                                                                                                                                                                   |
+| 15  | **Thousands of viewers per session**   | load-tested at **50 concurrent VUs on one laptop**, not thousands across regions. The Redis fan-out + DB replay design supports it; that claim is unproven at scale.                                                                                                                                                                           |
+| 16  | **50,000-word auto-scroll smoothness** | alignment is verified fast on a 5,000+ word transcript (<100 ms/update). Browser scroll smoothness at 50k words is **not** measured.                                                                                                                                                                                                           |
 
 ## Product-behavior limitations (by design)
 

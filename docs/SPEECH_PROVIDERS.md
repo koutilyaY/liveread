@@ -56,9 +56,29 @@ STT_FALLBACK_PROVIDER=fake     # or another real provider
 DEEPGRAM_API_KEY=…             # never commit this
 ```
 
-**Not verified against the live Deepgram service** — no credentials were
-available in this environment. The adapter is written to the documented
-protocol; the code path is unexercised. See LIMITATIONS.md.
+**Protocol-verified, not quality-verified.** 13 contract tests run the adapter
+against a local server speaking Deepgram's documented wire protocol
+(`deepgram.contract.test.ts`): auth header, query parameters, utterance
+assembly, KeepAlive, CloseStream, bounded buffering, connect-timeout handling.
+
+Those tests found and fixed six real defects, the worst being that every
+`is_final` message was treated as a finished segment. Deepgram's docs are
+explicit that a long utterance produces _several_ `is_final` responses which
+must be concatenated until `speech_final` — so the original adapter would have
+shredded each spoken sentence into fragments the moment it saw real traffic.
+
+What contract tests **cannot** tell you is recognition quality. For that:
+
+```bash
+DEEPGRAM_API_KEY=... make verify-real-stt
+```
+
+It synthesizes speech (`say`/`espeak`) or takes a WAV you supply, streams it
+through the production adapter at real-time pace, and reports the transcript,
+interim/final counts, first-interim latency, and word overlap. It deliberately
+does **not** fall back to the fake provider — exercising the real path is its
+only purpose. **As of this writing it has not been run: no credentials were
+available in the build environment.**
 
 ### Adding a second real provider
 
