@@ -45,18 +45,19 @@ const SegmentText = memo(function SegmentText({
         const isActiveSentence =
           readAloudActive && t.sentenceIndex === activeSentenceIndex;
         return (
-          <span key={t.wordIndex}>
+          // The sentence highlight lives on the OUTER span so it covers the
+          // trailing space too. With it on the word span, the space fell
+          // outside the background and the active sentence rendered as
+          // disconnected blocks instead of one continuous band.
+          <span
+            key={t.wordIndex}
+            className={isActiveSentence ? "sentence-active" : undefined}
+          >
             <span
               data-word-index={t.wordIndex}
               data-sentence-index={t.sentenceIndex}
               data-active-word={isActiveWord || undefined}
-              className={
-                isActiveWord
-                  ? "word-active px-0.5"
-                  : isActiveSentence
-                    ? "sentence-active"
-                    : undefined
-              }
+              className={isActiveWord ? "word-active" : undefined}
               onClick={
                 onManualJump ? () => onManualJump(t.wordIndex) : undefined
               }
@@ -158,9 +159,12 @@ export function TranscriptView({
 
   return (
     <div className="relative h-full">
+      {/* max-h-full rather than h-full: a short transcript sizes the card to its
+          content instead of leaving a tall empty box, while a long one still
+          fills the available space and scrolls. */}
       <div
         ref={containerRef}
-        className={`h-full overflow-y-auto rounded-lg border p-6 ${
+        className={`reading-surface max-h-full overflow-y-auto rounded-lg border px-4 py-6 sm:px-8 ${
           highContrast
             ? "border-black bg-white text-black dark:border-white dark:bg-black dark:text-white"
             : "border-zinc-200 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"

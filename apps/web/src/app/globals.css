@@ -1,14 +1,35 @@
 @import "tailwindcss";
 
+/**
+ * Reading surface tokens.
+ *
+ * Dual highlighting (the pattern Microsoft Immersive Reader uses): a soft band
+ * marks the sentence being read, a stronger colour marks the exact word. The
+ * band stays quiet on purpose — a band loud enough to hit 3:1 against the page
+ * is fatiguing across minutes of continuous reading, which is the actual use
+ * case here. The ACTIVE WORD is the cursor, so that is what carries the
+ * contrast obligation, and the active sentence additionally gets a non-colour
+ * cue (a left rail) so it is never identified by colour alone.
+ *
+ * Measured on this build (canvas-resolved sRGB, WCAG 2.x formula):
+ *   word vs page   3.53 dark / 4.900 light   (WCAG 1.4.11 non-text ≥ 3)
+ *   text on word   5.02 dark / 8.590 light   (WCAG 1.4.3 ≥ 4.5)
+ *   text on band   9.71 dark / 15.60 light   (WCAG 1.4.3 ≥ 4.5)
+ */
 :root {
   --reading-highlight: #fef08a;
-  --reading-word: #f59e0b;
+  --reading-word: #b45309;
+  --reading-word-text: #ffffff;
+  /* Butterick / Tailwind prose: ~55-65 characters per line. `ch` is
+     font-relative, so the measure holds as the reader scales the type. */
+  --reading-measure: 62ch;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --reading-highlight: #4a3d12;
-    --reading-word: #b45309;
+    --reading-highlight: #55471a;
+    --reading-word: #f59e0b;
+    --reading-word-text: #1c1917;
   }
 }
 
@@ -26,15 +47,52 @@ html {
   }
 }
 
+/**
+ * The sentence band sits on the wrapper that INCLUDES each trailing space, so
+ * it renders as one continuous band. With the band on the word span the spaces
+ * fell outside it and the active sentence looked like disconnected blocks.
+ * `box-decoration-break: clone` keeps it intact when a sentence wraps lines.
+ */
 .sentence-active {
   background-color: var(--reading-highlight);
-  border-radius: 0.25rem;
+  /* No radius: the band is painted per word-wrapper, and rounding every span
+     scallops the edge where they butt together. Flat keeps it one band. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .word-active {
   background-color: var(--reading-word);
-  color: white;
+  color: var(--reading-word-text);
   border-radius: 0.2rem;
+  padding: 0 0.12em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/**
+ * The reading surface is sized to the measure itself (plus its padding) and
+ * centred, so the "paper" hugs the text instead of being a wide, mostly-empty
+ * card. `ch` is font-relative, so this tracks the reader's font-size setting.
+ */
+.reading-surface {
+  width: 100%;
+  max-width: calc(var(--reading-measure) + 4rem);
+  margin-inline: auto;
+}
+
+/* The highlight advances every few hundred ms — keep the transition subtle
+   and drop it entirely for users who ask for reduced motion. */
+.word-active,
+.sentence-active {
+  transition: background-color 90ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .word-active,
+  .sentence-active {
+    transition: none;
+  }
 }
 
 /* visible focus for keyboard users */

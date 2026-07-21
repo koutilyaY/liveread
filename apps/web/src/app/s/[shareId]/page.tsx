@@ -173,8 +173,11 @@ export default function ViewerPage({
         </div>
       )}
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 p-4 md:flex-row">
-        <div className="min-h-0 flex-1">
+      <main className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4 md:flex-row">
+        {/* On a phone the stacked control panel was taking two thirds of the
+            screen, leaving the reading surface ~270px of 812. Give reading a
+            floor of 58% of the viewport; the controls sit a scroll below. */}
+        <div className="min-h-[58svh] flex-1 md:min-h-0">
           <TranscriptView
             finalSegments={store.finalSegments}
             interimSegments={completed ? [] : store.interimSegments}
