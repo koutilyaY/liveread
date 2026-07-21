@@ -286,9 +286,6 @@ equal quality across languages. Product copy is held to
 > property-test]**. If I started again I'd **[one honest thing]**.
 >
 > [LinkedIn](#) · [Portfolio](#)
->
-> Commits disclose AI pair-programming via `Co-Authored-By` trailers — worth
-> stating plainly rather than leaving a reviewer to discover it.
 
 ## License
 
